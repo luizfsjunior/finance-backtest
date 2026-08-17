@@ -9,7 +9,10 @@ reflete essa postura — cético, focado em separar sinal de sorte.
 
 Este projeto segue **SDD + TDD** (ver instruções globais). Especificamente:
 
-1. Specs entram em `SPEC_*.md` (ex.: `SPEC_LAB.md`).
+1. Specs entram em `SPEC_*.md` (`SPEC_LAB.md`, `SPEC_ROBUSTNESS.md`). Quando uma
+   spec existente deixa decisões em aberto, o detalhamento vira um `SPEC_*.md`
+   novo com uma seção por decisão e o motivo escrito, e a spec original ganha um
+   ponteiro — não se decide em silêncio dentro do código.
 2. Testes em `tests/` são fornecidos ANTES da implementação.
 3. Só implementar após specs + testes explícitos. Se algo estiver ambíguo, parar
    e perguntar — nunca assumir default silencioso.
@@ -56,10 +59,12 @@ batches.
 spec. YAML (não JSON) por causa dos comentários — o arquivo registra por que
 aquela grade. Registro FECHADO de classes (`STRATEGIES`/`STOPS`), nunca
 `getattr`. Campo desconhecido, classe inexistente ou hipótese vazia = erro
-explícito, nunca default silencioso. `walk_forward` no YAML levanta erro
-enquanto o Componente 2 não existir (rodar sweep simples e devolver algo com
-cara de out-of-sample é o pior desfecho possível). Componentes 3, 4 e 6 da spec
-ainda não existem.
+explícito, nunca default silencioso. Seções `walk_forward` e
+`perturbations` são mutuamente exclusivas no mesmo arquivo (escolher a config e
+estressá-la são etapas diferentes). O Componente 6 (visualizações) ainda não
+existe; o 4 é disciplina de leitura, com o suporte de dados (`n_combos`,
+`n_perturbations`, distribuição impressa) já no lugar — falta só a contagem de
+"espiadas" de um mesmo período.
 
 **Walk-forward** (`walkforward.py`): Componente 2, esquema `expanding` só
 (`rolling` levanta erro em vez de rodar expanding com nome errado). Defesa
@@ -69,6 +74,21 @@ o bloco de teste é bug crítico — `tests/test_walkforward.py` cobre isso por 
 ângulos. WFE = razão das MÉDIAS (não média das razões) e é `None` com in-sample
 ≤ 0. Limitação assumida: o bloco de teste roda sozinho, então o warm-up da
 estratégia consome o início dele — subestima a tese, nunca superestima.
+
+**Robustez** (`robustness.py` + `SPEC_ROBUSTNESS.md`): Componente 3. A spec do
+`SPEC_LAB.md` deixava decisões em aberto; elas estão FECHADAS no
+`SPEC_ROBUSTNESS.md`, uma seção por decisão (D1..D6) — discordar exige mudar lá,
+não adivinhar aqui. Os dois invariantes que não se negociam: a config perturbada
+é DECLARADA (grade de valor único; 2+ combinações = erro) e **não existe função
+que escolha a melhor perturbação** — a saída é a distribuição e um veredicto
+severo (ROBUSTA exige survival 100% e retenção mediana ≥ 50%). Qualquer código
+novo que perturbe a estratégia/stop em vez do ambiente é bug crítico:
+`tests/test_robustness.py::TestConfiguracaoNaoMuda` é o equivalente aqui ao
+teste anti-vazamento do walk-forward. Números são in-sample e não substituem o
+WFE. **ROBUSTA significa ESTÁVEL, nunca SUPERIOR** (D4.1): o MAC já refutado sai
+ROBUSTA aqui e perde do buy-and-hold em 20 de 20 execuções — Sharpe baixo,
+positivo e estável passa nos limiares. Por isso o relatório imprime o placar
+contra o benchmark ao lado do veredicto. Nunca ler ROBUSTA como aprovação de tese.
 
 ## Convenções não óbvias
 
@@ -86,6 +106,13 @@ estratégia consome o início dele — subestima a tese, nunca superestima.
 - **Determinismo é obrigatório.** Mesma configuração rodada duas vezes tem que
   gerar exatamente os mesmos números. O cache de dados ajuda; qualquer código
   novo que introduza aleatoriedade sem seed é bug.
+- **Furo de determinismo conhecido e ABERTO no cache.** `data._covers_range`
+  compara a primeira barra do cache com a data PEDIDA: `start` em feriado/fim de
+  semana nunca "cobre", o parquet é reescrito, e como o preço ajustado depende
+  do range baixado a mesma data volta com diferença na 7ª casa. Afeta quem varre
+  vários períodos (sweep, walk-forward, robustez). `robustness._warm_cache`
+  mitiga; a correção é em `data.py` e ainda não foi feita — ver os gotchas do
+  README. Antes de investigar "resultado mudou sozinho", checar isto primeiro.
 
 ## Sobre commits
 
@@ -105,7 +132,8 @@ estratégia consome o início dele — subestima a tese, nunca superestima.
   estado compartilhado.
 - Não celebrar teses aprovadas antes dos 4 obstáculos do `SPEC_LAB.md` (vizinhança
   de parâmetros, walk-forward, perturbação, correção por número de tentativas).
-  Bancada honesta rejeita mais do que aprova.
+  Bancada honesta rejeita mais do que aprova. E um veredicto ROBUSTA sozinho não
+  é aprovação: ele responde "depende do ambiente exato?", nunca "a tese presta?".
 
 ## Testes
 

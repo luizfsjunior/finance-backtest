@@ -32,6 +32,24 @@ seus parâmetros.
   2.0–2.5 (platô real). 3.0 reduz drawdown mais mas piora Sharpe.
   `AtrStop(period=14, multiplier=2.0)` vira o default para novas estratégias.
 
+**Adendo (Componente 3 do laboratório, `experiments/mac_robustness.yaml`):** a
+config 9/21 + ATR 2.0 foi submetida a 19 perturbações do ambiente (leave-one-out
+dos 10 papéis, início ±1 e ±3 meses, custo ×0 e ×2, terços do período) e saiu
+**ROBUSTA** — Sharpe entre 0.21 e 0.58, baseline 0.45, mediana retendo 103%,
+nenhuma perturbação virando negativa. E **perde do buy-and-hold em 20 de 20
+execuções.**
+
+Isso não reabilita a tese; reforça o veredicto e o mecanismo já descrito. Um
+Sharpe modesto, positivo e estabilíssimo é a assinatura de quem fica pouco tempo
+exposto ao mercado — que é exatamente o diagnóstico do item anterior. O que o
+adendo acrescenta é sobre a **bancada**: robustez mede dependência do ambiente,
+não qualidade. As duas perguntas se respondem separadas, e um "ROBUSTA" isolado
+nunca é aprovação de tese (ver D4.1 do `SPEC_ROBUSTNESS.md`).
+
+O ponto mais frágil apareceu no sub-período 2/3 (2020-01 a 2021-12, o choque da
+pandemia e a recuperação): Sharpe 0.21, 46% do baseline. Consistente com uma
+estratégia de seguimento de tendência levando chicotada em reversão violenta.
+
 ---
 
 ## 2. Bollinger conservadora (BollingerReversion 20/2.0) — REFUTADA

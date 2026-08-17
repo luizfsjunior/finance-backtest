@@ -186,6 +186,48 @@ nada do teste vaza para a decisão. Use `test_years` grande o bastante.
 ajusta a grade e roda de novo — contaminando o teste com a própria memória).
 Nenhum código detecta isso; `n_combos` cobre só a parte mecânica do obstáculo 4.
 
+### Laboratório — robustez a perturbação (`robustness.py`)
+
+Componente 3 do `SPEC_LAB.md`, detalhado em `SPEC_ROBUSTNESS.md` (cada decisão
+com o motivo escrito). Pergunta: **a tese aguenta mexer no setup, ou só funciona
+na configuração exata em que foi achada?** Pega uma config única já escolhida e
+roda sob quatro eixos de perturbação:
+
+| eixo | pergunta | default |
+|---|---|---|
+| `leave_one_out` | um papel sortudo segura o resultado? | ligado (exige ≥ 3 tickers) |
+| `start_shift_months` | depende do ponto exato de partida? | `[-3, -1, 1, 3]` |
+| `cost_multipliers` | a margem sobrevive a execução pessimista? | `[0.0, 2.0]` |
+| `subperiods` | funciona ao longo do tempo ou só num pedaço? | `3` |
+
+Decisões que valem explicação:
+
+- **A config é declarada, nunca inferida.** A grade tem que produzir exatamente
+  uma combinação válida; duas ou mais é erro. Ler automaticamente a vencedora do
+  walk-forward esconderia a instabilidade da escolha entre janelas atrás de um
+  "a da última janela" arbitrário. Pelo mesmo motivo, `walk_forward` e
+  `perturbations` no mesmo arquivo é erro — são etapas diferentes.
+- **Não existe função que escolha a melhor perturbação.** A saída é a
+  distribuição inteira e um veredicto conservador. Perturbar até achar a
+  variação que sobrevive é overfitting disfarçado de teste de robustez, e a
+  defesa aqui é estrutural: a porta não existe. É o que o teste-armadilha
+  `TestConfiguracaoNaoMuda` trava — nenhum eixo pode alterar estratégia ou stop.
+- **Veredicto deliberadamente severo:** ROBUSTA exige que *todas* as
+  perturbações mantenham a métrica > 0 **e** que a mediana retenha ≥ 50% do
+  baseline. Qualquer outra coisa é FRÁGIL; baseline ≤ 0 é N/A. Um limiar
+  tolerante deixaria passar exatamente o caso que o componente existe para pegar.
+- **Percentis por rank mais próximo, sem interpolar.** Com 12 ou 19 pontos,
+  interpolar inventa um valor que nenhuma perturbação produziu; aqui todo número
+  reportado aconteceu de verdade.
+- **Os números são in-sample** (a config já estava escolhida) e não substituem o
+  WFE. O relatório imprime esse aviso.
+
+Grava em `robustness_runs.csv` com `run_id`, `perturbation_kind`,
+`perturbation_value` e `n_perturbations` (contagem separada de `n_combos`: uma
+conta tentativas de tuning, a outra de estresse). `train_test` vale
+`"perturbation"` — não é `full` (sub-período não é o período inteiro) nem
+`train`/`test` (nada aqui é out-of-sample).
+
 ---
 
 ## Setup
@@ -278,6 +320,34 @@ python walkforward.py experiments/mac_walkforward.yaml   # atalho equivalente
 O relatório sai por janela (combinação escolhida, in-sample, out-of-sample, WFE)
 e fecha com a WFE agregada.
 
+### Robustez a perturbação
+
+Mesma ideia: o experimento declara a seção `perturbations` sobre uma grade de
+**valor único**, e `lab.py run` executa robustez, gravando em
+`robustness_runs.csv`:
+
+```yaml
+strategy:
+  class: MovingAverageCrossover
+  grid: {fast_window: 9, slow_window: 21} # config única — nada de varrer aqui
+
+perturbations:
+  leave_one_out: true
+  start_shift_months: [-3, -1, 1, 3]
+  cost_multipliers: [0.0, 2.0]
+  subperiods: 3
+```
+
+```powershell
+python lab.py run experiments/mac_robustness.yaml --dry-run  # lista as perturbações
+python robustness.py experiments/mac_robustness.yaml         # atalho equivalente
+```
+
+O relatório lista as perturbações **da pior para a melhor** (é a pior que carrega
+a informação), imprime a distribuição (pior / p25 / mediana / p75 / melhor) e
+fecha com ROBUSTA, FRÁGIL ou N/A. Template comentado:
+`experiments/mac_robustness.yaml`.
+
 ### Plot do log
 
 ```powershell
@@ -292,7 +362,8 @@ pytest
 
 Cobrem cada módulo isoladamente (`tests/test_backtest.py`, `test_strategy.py`,
 `test_stops.py`, `test_costs.py`, `test_metrics.py`, `test_data.py`,
-`test_main.py`, `test_sweep.py`, `test_lab.py`).
+`test_main.py`, `test_sweep.py`, `test_lab.py`, `test_walkforward.py`,
+`test_robustness.py`).
 
 ---
 
@@ -317,7 +388,20 @@ Cobrem cada módulo isoladamente (`tests/test_backtest.py`, `test_strategy.py`,
   desliga. Aplicado ANTES do backtest — ticker ilíquido gera exceção clara,
   não resultado enganoso.
 - **Determinismo.** Mesma configuração → mesmos números. O cache parquet ajuda.
-  Nada aleatório sem seed.
+  Nada aleatório sem seed. **Com uma exceção conhecida, ver abaixo.**
+- **Furo de determinismo no cache (aberto).** `data._covers_range` compara a
+  primeira barra do cache com a data **pedida**, não com o primeiro pregão
+  existente. Um `start` que caia em fim de semana ou feriado (`2018-01-01`, por
+  exemplo) nunca é considerado coberto, e o cache daquele ticker é **reescrito**
+  a cada chamada. Como o preço ajustado do yfinance depende do range baixado, a
+  mesma data volta com diferença na sétima casa decimal, e quem varre vários
+  ranges (sweep com períodos diferentes, walk-forward, robustez) pode ver o
+  resultado mudar entre execuções idênticas. Medido: rodando
+  `experiments/mac_robustness.yaml` duas vezes, o Sharpe do pior sub-período foi
+  de `0.20635` para `0.20633` — irrelevante para o veredicto, fatal para a
+  regra. `robustness._warm_cache` mitiga (busca o range mais amplo antes de
+  começar), mas a correção real é em `data.py`, que o Componente 0 do
+  `SPEC_LAB.md` declara fora do escopo do laboratório. **Ainda não corrigido.**
 
 ---
 
@@ -330,15 +414,16 @@ que separam robusto de sortudo:
 2. **Walk-forward + WFE** — a tese funciona em dados que ela não escolheu?
    ✅ implementado (`walkforward.py`), esquema `expanding` só.
 3. **Robustez a perturbação** — leave-one-out de ativo, deslocamento de datas,
-   custos dobrados.
+   custos dobrados, sub-períodos. ✅ implementado (`robustness.py`).
 4. **Correção por número de tentativas** — a melhor de 200 combinações não vale
-   o que valeria um resultado único.
+   o que valeria um resultado único. Parcial: `n_combos` e `n_perturbations`
+   estão gravados e a distribuição é impressa; falta a contagem de "espiadas".
 
 Config declarativo (YAML): ✅ implementado (`lab.py` + `experiments/*.yaml`).
 Web app só depois de o acervo justificar navegar.
 
-Estado: componentes 1, 2 e 5 prontos. Faltam robustez a perturbação (3),
-visualizações (6) e a contagem de "espiadas" que o obstáculo 4 pede.
+Estado: componentes 1, 2, 3 e 5 prontos. Faltam as visualizações (6) e a
+contagem de "espiadas" que o obstáculo 4 pede.
 
 ## Histórico de teses
 

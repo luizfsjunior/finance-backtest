@@ -110,6 +110,11 @@ uma vez e depois entra na janela de otimização seguinte.
 
 ## Componente 3 — Robustez a perturbação
 
+> Implementado em `robustness.py`. As decisões que esta seção deixou em aberto
+> (qual config é perturbada, o que roda em cada perturbação, limiares do
+> veredicto, proveniência) estão fechadas em **`SPEC_ROBUSTNESS.md`**, uma
+> seção por decisão com o motivo escrito.
+
 **Pergunta que responde:** a tese aguenta mexer no setup, ou só funciona na
 configuração exata em que foi achada?
 
@@ -215,10 +220,10 @@ precisa de legenda longa pra entender, está fazendo demais.
 
 ## Ordem de construção (resumo)
 
-1. Sweep + colunas de proveniência (1 e 4-dados). Destrava investigar espaços.
-2. Config declarativo (5). Torna os experimentos reproduzíveis desde o início.
-3. Walk-forward + WFE (2). O obstáculo que separa robusto de sortudo.
-4. Perturbação (3). Confirma o sobrevivente do 3.
+1. Sweep + colunas de proveniência (1 e 4-dados). ✅ `sweep.py`
+2. Config declarativo (5). ✅ `lab.py` + `experiments/*.yaml`
+3. Walk-forward + WFE (2). ✅ `walkforward.py`
+4. Perturbação (3). ✅ `robustness.py` (ver `SPEC_ROBUSTNESS.md`)
 5. Visualizações (6), cada uma quando seu componente gerar dados.
 6. App web — só se e quando a LEITURA do acervo virar o gargalo.
 

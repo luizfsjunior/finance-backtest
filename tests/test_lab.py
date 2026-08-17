@@ -56,6 +56,16 @@ YAML_LONGO = YAML_MINIMO.replace(
 )
 
 
+# Mesmo experimento com a grade FIXA numa combinação só e universo de três
+# papéis: é o que a seção `perturbations` exige (a robustez estressa uma config
+# já escolhida, não uma grade).
+YAML_FIXO = (
+    YAML_LONGO.replace("fast_window: [3, 5]", "fast_window: 3")
+    .replace("slow_window: [10, 15]", "slow_window: 10")
+    .replace("universe: [AAA3.SA, BBB3.SA]", "universe: [AAA3.SA, BBB3.SA, CCC3.SA]")
+)
+
+
 def _write(tmp_path: Path, conteudo: str, nome: str = "exp.yaml") -> Path:
     caminho = tmp_path / nome
     caminho.write_text(conteudo, encoding="utf-8")
@@ -208,6 +218,31 @@ class TestErroNuncaViraDefaultSilencioso:
         with pytest.raises(ExperimentError, match="nenhuma janela"):
             load_experiment(_write(tmp_path, yaml))
 
+    def test_perturbations_com_campo_desconhecido(self, tmp_path: Path):
+        yaml = YAML_FIXO + "\nperturbations: {leave_one_out: false, terços: 3}\n"
+        with pytest.raises(ExperimentError, match="terços"):
+            load_experiment(_write(tmp_path, yaml))
+
+    def test_perturbations_sobre_grade_com_varias_combinacoes_falha_no_carregamento(
+        self, tmp_path: Path
+    ):
+        # a robustez estressa UMA config declarada; perturbar uma grade seria
+        # escolher uma vencedora escondida (D1 do SPEC_ROBUSTNESS.md)
+        yaml = YAML_MINIMO + "\nperturbations: {leave_one_out: false}\n"
+        with pytest.raises(ExperimentError, match="UMA configuração"):
+            load_experiment(_write(tmp_path, yaml))
+
+    def test_walk_forward_e_perturbations_juntos_e_erro(self, tmp_path: Path):
+        # etapas diferentes: escolher a config vs estressá-la. Misturadas, o
+        # relatório não deixa dizer qual número veio de onde.
+        yaml = (
+            YAML_FIXO
+            + "\nwalk_forward: {train_years: 2, test_years: 1}"
+            + "\nperturbations: {leave_one_out: false}\n"
+        )
+        with pytest.raises(ExperimentError, match="perturbations"):
+            load_experiment(_write(tmp_path, yaml))
+
     def test_arquivo_vazio(self, tmp_path: Path):
         with pytest.raises(ExperimentError):
             load_experiment(_write(tmp_path, ""))
@@ -281,3 +316,30 @@ class TestRodarExperimento:
         exp = load_experiment(raiz / "experiments" / "mac_walkforward.yaml")
         assert exp.walk_forward is not None
         assert exp.walk_forward.scheme == "expanding"
+
+    def test_perturbations_declarado_vira_robustez_de_verdade(self, tmp_path: Path):
+        yaml = YAML_FIXO + "\nperturbations: {start_shift_months: [-1], subperiods: 0}\n"
+        exp = load_experiment(_write(tmp_path, yaml))
+
+        assert exp.robustness is not None
+        assert exp.robustness.select_by == exp.select_by  # herdado do topo
+
+        result = run_experiment(
+            exp,
+            log_path=tmp_path / "rb.csv",
+            cache_dir=tmp_path / "cache",
+            fetch_fn=_oscillating,
+            verbose=False,
+        )
+        # é um RobustnessResult: tem baseline, perturbações e veredicto
+        assert result.baseline.perturbation.kind == "baseline"
+        # 3 leave-one-out + 1 deslocamento + 2 custos (defaults), sem sub-períodos
+        assert len(result.perturbations) == 6
+        assert result.summary.verdict in {"ROBUSTA", "FRÁGIL", "N/A"}
+        assert result.run_id.startswith("mac_plateau-")
+
+    def test_experimento_de_robustez_do_repo_carrega(self):
+        raiz = Path(__file__).resolve().parent.parent
+        exp = load_experiment(raiz / "experiments" / "mac_robustness.yaml")
+        assert exp.robustness is not None
+        assert exp.walk_forward is None

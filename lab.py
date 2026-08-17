@@ -35,6 +35,18 @@ import yaml
 
 from batch import TICKERS
 from data import DEFAULT_MIN_MEDIAN_TURNOVER, FetchFn
+from robustness import DEFAULT_LOG_PATH as RB_DEFAULT_LOG_PATH
+from robustness import (
+    DEFAULT_COST_MULTIPLIERS,
+    DEFAULT_MAX_PERTURBATIONS,
+    DEFAULT_START_SHIFT_MONTHS,
+    DEFAULT_SUBPERIODS,
+    RobustnessError,
+    RobustnessResult,
+    RobustnessSpec,
+    build_perturbations,
+    run_robustness,
+)
 from stops import AtrStop, FixedPctStop, NoStop
 from strategy import BollingerReversion, MovingAverageCrossover, TimeSeriesMomentum
 from sweep import (
@@ -81,10 +93,18 @@ TOP_LEVEL_FIELDS = {
     "execution",
     "select_by",
     "walk_forward",
+    "perturbations",
 }
 
 PERIOD_FIELDS = {"start", "end"}
 WALK_FORWARD_FIELDS = {"scheme", "train_years", "test_years"}
+PERTURBATION_FIELDS = {
+    "leave_one_out",
+    "start_shift_months",
+    "cost_multipliers",
+    "subperiods",
+    "max_perturbations",
+}
 COMPONENT_FIELDS = {"class", "grid"}
 EXECUTION_FIELDS = {
     "initial_capital",
@@ -105,8 +125,9 @@ class Experiment:
     """Um experimento declarado em arquivo, pronto para virar sweep.
 
     Com a seção `walk_forward` declarada, o experimento vira walk-forward: o
-    mesmo universo/grade, fatiado em janelas treino→teste. Sem ela, é um sweep
-    simples sobre o período inteiro (in-sample, e o relatório não finge o
+    mesmo universo/grade, fatiado em janelas treino→teste. Com `perturbations`,
+    vira teste de robustez sobre uma config única. Sem nenhuma das duas, é um
+    sweep simples sobre o período inteiro (in-sample, e o relatório não finge o
     contrário).
     """
 
@@ -115,6 +136,7 @@ class Experiment:
     select_by: str
     source: Path | None = None
     walk_forward: WalkForwardSpec | None = None
+    robustness: RobustnessSpec | None = None
 
 
 def load_experiment(path: Path | str) -> Experiment:
@@ -169,12 +191,22 @@ def load_experiment(path: Path | str) -> Experiment:
     )
 
     select_by = str(raw.get("select_by", "sharpe"))
+    if "walk_forward" in raw and "perturbations" in raw:
+        raise ExperimentError(
+            "'walk_forward' e 'perturbations' no mesmo arquivo: são etapas "
+            "diferentes da mesma investigação (escolher a config vs estressá-la), "
+            "e um relatório misturando as duas não deixa dizer qual número veio "
+            "de onde. Rode o walk-forward, decida a config, declare-a num "
+            "segundo arquivo com 'perturbations'."
+        )
+
     return Experiment(
         name=name,
         spec=spec,
         select_by=select_by,
         source=path,
         walk_forward=_parse_walk_forward(raw, spec, select_by),
+        robustness=_parse_perturbations(raw, spec, select_by),
     )
 
 
@@ -209,6 +241,42 @@ def _parse_walk_forward(
     except WalkForwardError as exc:
         raise ExperimentError(f"walk_forward inválido: {exc}") from exc
     return wf
+
+
+def _parse_perturbations(
+    raw: Mapping[str, Any], spec: SweepSpec, select_by: str
+) -> RobustnessSpec | None:
+    if "perturbations" not in raw:
+        return None
+
+    bloco = raw["perturbations"]
+    if bloco is None:  # `perturbations:` sem corpo = todos os eixos default
+        bloco = {}
+    if not isinstance(bloco, Mapping):
+        raise ExperimentError("'perturbations' precisa ser um mapeamento")
+    _reject_unknown(bloco, PERTURBATION_FIELDS, secao="perturbations")
+
+    rb = RobustnessSpec(
+        base=spec,
+        select_by=select_by,
+        leave_one_out=bool(bloco.get("leave_one_out", True)),
+        start_shift_months=tuple(
+            int(m) for m in bloco.get("start_shift_months", DEFAULT_START_SHIFT_MONTHS)
+        ),
+        cost_multipliers=tuple(
+            float(f) for f in bloco.get("cost_multipliers", DEFAULT_COST_MULTIPLIERS)
+        ),
+        subperiods=int(bloco.get("subperiods", DEFAULT_SUBPERIODS)),
+        max_perturbations=int(bloco.get("max_perturbations", DEFAULT_MAX_PERTURBATIONS)),
+    )
+    # valida os eixos já no carregamento, pelo mesmo motivo do walk_forward:
+    # descobrir que a grade tem duas combinações depois de meia hora de
+    # execução é desperdício
+    try:
+        build_perturbations(rb)
+    except RobustnessError as exc:
+        raise ExperimentError(f"perturbations inválido: {exc}") from exc
+    return rb
 
 
 def _reject_unknown(mapping: Mapping[str, Any], allowed: set[str], secao: str) -> None:
@@ -334,15 +402,25 @@ def run_experiment(
     fetch_fn: FetchFn | None = None,
     verbose: bool = True,
     train_test: str = "full",
-) -> SweepResult | WalkForwardResult:
-    """Roda o experimento carregado, sweep ou walk-forward conforme declarado.
+) -> SweepResult | WalkForwardResult | RobustnessResult:
+    """Roda o experimento carregado — sweep, walk-forward ou robustez.
 
     Nenhuma novidade de execução mora aqui — o que este módulo agrega é a
-    declaração reproduzível. Cada tipo grava no seu CSV (`sweep_runs.csv` vs
-    `walkforward_runs.csv`): as linhas têm proveniência e significados
-    diferentes, e misturá-las faria a leitura do acervo depender de lembrar
-    qual coluna estava preenchida.
+    declaração reproduzível. Cada tipo grava no seu CSV (`sweep_runs.csv`,
+    `walkforward_runs.csv`, `robustness_runs.csv`): as linhas têm proveniência e
+    significados diferentes, e misturá-las faria a leitura do acervo depender de
+    lembrar qual coluna estava preenchida.
     """
+    if experiment.robustness is not None:
+        return run_robustness(
+            experiment.robustness,
+            run_id=make_sweep_id(experiment.name),
+            log_path=RB_DEFAULT_LOG_PATH if log_path is _AUTO else log_path,
+            cache_dir=cache_dir,
+            fetch_fn=fetch_fn,
+            verbose=verbose,
+        )
+
     if experiment.walk_forward is not None:
         return run_walk_forward(
             experiment.walk_forward,
@@ -378,6 +456,14 @@ def _print_plan(experiment: Experiment) -> None:
     print(f"universo: {len(spec.tickers)} ticker(s)")
     print(f"setup:    {spec.strategy_class.__name__} + {spec.stop_class.__name__}")
     print(f"grade:    {len(combos)} combinação(ões) válida(s)")
+
+    if experiment.robustness is not None:
+        perturbacoes = build_perturbations(experiment.robustness)
+        print(f"modo:     robustez, {len(perturbacoes) - 1} perturbação(ões) + baseline")
+        print(f"total:    {sum(len(p.spec.tickers) for p in perturbacoes)} backtests")
+        for p in perturbacoes:
+            print(f"  {p.label}")
+        return
 
     if experiment.walk_forward is None:
         print(f"modo:     sweep simples (tudo in-sample)")
@@ -455,9 +541,9 @@ def main() -> None:
     except Exception as exc:
         raise SystemExit(f"Experimento abortado: {exc}")
 
-    if experiment.walk_forward is None:
-        # o relatório do walk-forward já sai durante a execução (uma janela por
-        # vez); só o sweep simples precisa do fechamento aqui
+    if experiment.walk_forward is None and experiment.robustness is None:
+        # os relatórios do walk-forward e da robustez já saem durante a
+        # execução; só o sweep simples precisa do fechamento aqui
         print_distribution(
             aggregate_by_combo(result.rows, experiment.select_by), experiment.select_by
         )

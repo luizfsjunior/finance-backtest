@@ -1,0 +1,58 @@
+# Robustez a perturbação do MAC — o obstáculo 3 aplicado à config que o
+# walk-forward vinha elegendo.
+#
+#     python lab.py run experiments/mac_robustness.yaml --dry-run
+#     python robustness.py experiments/mac_robustness.yaml
+#
+# Por que este arquivo é separado do mac_walkforward.yaml: escolher a config e
+# estressar a config são etapas diferentes, e o lab.py recusa as duas no mesmo
+# arquivo de propósito (ver D1 do SPEC_ROBUSTNESS.md). A config abaixo está
+# FIXA — um valor por parâmetro. Ela é a decisão que este commit registra;
+# se ela mudar, o arquivo muda junto e o diff mostra quando e por quê.
+
+experiment: mac_robustness
+
+hypothesis: >
+  O MAC já foi refutado como tese (ver CONCLUSOES.md), mas o achado
+  transferível foi o stop ATR 2.0. A pergunta aqui é sobre a dependência do
+  ambiente: o resultado do 9/21 + ATR 2.0 se sustenta quando um papel sai do
+  universo, quando o período começa três meses antes, quando o custo dobra?
+  Como a tese já é fraca, o veredicto esperado é FRÁGIL — e isso é a
+  calibragem da bancada. Um veredicto ROBUSTA aqui seria motivo para procurar
+  vazamento no Componente 3, não para reabilitar o MAC.
+
+universe: default
+period:
+  start: 2018-01-01
+  end: 2024-01-01
+
+strategy:
+  class: MovingAverageCrossover
+  grid:
+    # config única: cada parâmetro num valor só. Grade com duas combinações
+    # aqui é erro, não "perturba a melhor".
+    fast_window: 9
+    slow_window: 21
+
+stop:
+  class: AtrStop
+  grid:
+    period: 14
+    multiplier: 2.0
+
+execution:
+  risk_pct: 0.01
+  slippage_bps: 5
+
+select_by: sharpe
+
+perturbations:
+  # cada eixo pode ser desligado (false, lista vazia, 0). Os defaults abaixo
+  # estão escritos explicitamente para o arquivo se explicar sozinho.
+  leave_one_out: true # um papel sortudo segura o resultado?
+  start_shift_months: [-3, -1, 1, 3] # depende do ponto exato de partida?
+  cost_multipliers: [0.0, 2.0] # a margem sobrevive a execução pessimista?
+  subperiods: 3 # funciona ao longo do tempo ou só num pedaço?
+  # 10 leave-one-out + 4 deslocamentos + 2 custos + 3 terços = 19 perturbações.
+  # Cada uma é mais uma tentativa a descontar no obstáculo 4.
+  max_perturbations: 64
