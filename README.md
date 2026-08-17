@@ -80,7 +80,9 @@ Contrapartida multi-asset. Diferenças estruturais:
 - **`portfolio_batch.py`** — equivalente para o motor multi-asset.
   Grava em `portfolio_runs.csv`.
 - **`plot_runs.py`** — lê o CSV e desenha comparações. Regra: cada gráfico
-  responde a UMA pergunta.
+  responde a UMA pergunta. Serve exclusivamente o `runs.csv`: os gráficos do
+  laboratório (sweep, walk-forward, robustez) vivem separados, em `plot_lab.py`
+  — spec fechada em `SPEC_PLOTS.md`, ainda não implementado.
 
 ### Laboratório — sweep de parâmetros (`sweep.py`)
 
@@ -421,6 +423,11 @@ que separam robusto de sortudo:
 
 Config declarativo (YAML): ✅ implementado (`lab.py` + `experiments/*.yaml`).
 Web app só depois de o acervo justificar navegar.
+
+Visualizações (6): spec fechada em `SPEC_PLOTS.md` — módulo próprio
+(`plot_lab.py`), um subcomando por gráfico (`heatmap`, `dist`, `walkforward`,
+`robustness`), uma rodada por gráfico, mediana entre tickers, e a regra de que
+o plot LÊ o veredicto em vez de recalculá-lo. Ainda não implementado.
 
 Estado: componentes 1, 2, 3 e 5 prontos. Faltam as visualizações (6) e a
 contagem de "espiadas" que o obstáculo 4 pede.

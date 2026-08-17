@@ -201,7 +201,14 @@ depois de os componentes 1-4 existirem e você ter acervo que justifique navegar
 
 ## Componente 6 — Visualização
 
-Estende o `plot_runs.py` conforme cada componente gera dados novos:
+> Detalhado em **`SPEC_PLOTS.md`**. As decisões que esta seção deixou em aberto
+> (módulo separado em vez de estender o `plot_runs.py`, um subcomando por
+> gráfico, qual rodada é plotada, agregação entre tickers, o que fazer quando a
+> grade não é 2D) estão fechadas lá, uma seção por decisão com o motivo escrito.
+> Correção ao texto abaixo: o `plot_runs.py` **não** é estendido — ele continua
+> servindo só o `runs.csv`; os gráficos do laboratório vivem em `plot_lab.py`.
+
+Gráficos, conforme cada componente gera dados novos:
 
 - **Sweep 1D** (já existe, forma de linha) — métrica vs um parâmetro. Platô vs pico.
 - **Sweep 2D** (heatmap) — dois parâmetros nos eixos, métrica na cor. A visão que
@@ -225,6 +232,7 @@ precisa de legenda longa pra entender, está fazendo demais.
 3. Walk-forward + WFE (2). ✅ `walkforward.py`
 4. Perturbação (3). ✅ `robustness.py` (ver `SPEC_ROBUSTNESS.md`)
 5. Visualizações (6), cada uma quando seu componente gerar dados.
+   📝 spec fechada em `SPEC_PLOTS.md`; `plot_lab.py` ainda não implementado.
 6. App web — só se e quando a LEITURA do acervo virar o gargalo.
 
 Cada passo é aditivo sobre o motor existente. Nenhum exige reescrever o núcleo.

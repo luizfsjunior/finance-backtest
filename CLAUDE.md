@@ -9,7 +9,8 @@ reflete essa postura — cético, focado em separar sinal de sorte.
 
 Este projeto segue **SDD + TDD** (ver instruções globais). Especificamente:
 
-1. Specs entram em `SPEC_*.md` (`SPEC_LAB.md`, `SPEC_ROBUSTNESS.md`). Quando uma
+1. Specs entram em `SPEC_*.md` (`SPEC_LAB.md`, `SPEC_ROBUSTNESS.md`,
+   `SPEC_PLOTS.md`). Quando uma
    spec existente deixa decisões em aberto, o detalhamento vira um `SPEC_*.md`
    novo com uma seção por decisão e o motivo escrito, e a spec original ganha um
    ponteiro — não se decide em silêncio dentro do código.
@@ -61,8 +62,11 @@ aquela grade. Registro FECHADO de classes (`STRATEGIES`/`STOPS`), nunca
 `getattr`. Campo desconhecido, classe inexistente ou hipótese vazia = erro
 explícito, nunca default silencioso. Seções `walk_forward` e
 `perturbations` são mutuamente exclusivas no mesmo arquivo (escolher a config e
-estressá-la são etapas diferentes). O Componente 6 (visualizações) ainda não
-existe; o 4 é disciplina de leitura, com o suporte de dados (`n_combos`,
+estressá-la são etapas diferentes). O Componente 6 (visualizações) tem a spec
+fechada em `SPEC_PLOTS.md` (D1..D11) mas ainda não tem código: `plot_lab.py` é
+módulo NOVO — o `plot_runs.py` continua servindo só o `runs.csv` e não é
+editado por aquele componente. O 4 é disciplina de leitura, com o suporte de
+dados (`n_combos`,
 `n_perturbations`, distribuição impressa) já no lugar — falta só a contagem de
 "espiadas" de um mesmo período.
 
