@@ -1,0 +1,52 @@
+# Walk-forward do MAC — o obstáculo 2 aplicado à família já refutada.
+#
+#     python walkforward.py experiments/mac_walkforward.yaml
+#     python lab.py run experiments/mac_walkforward.yaml --dry-run
+#
+# Por que rodar walk-forward numa tese já refutada: porque o sweep
+# (experiments/mac_plateau.yaml) mostrou que a MELHOR combinação in-sample
+# perde para o buy-and-hold. A pergunta que sobra é sobre o método, não sobre
+# a tese: quanto da performance escolhida no treino sequer sobrevive fora da
+# amostra? É a calibragem da própria bancada — se o WFE de uma tese refutada
+# vier alto, é sinal de vazamento no laboratório, não de tese boa.
+
+experiment: mac_walkforward
+
+hypothesis: >
+  Escolher os parâmetros do MAC pelo melhor Sharpe de cada janela de treino e
+  aplicá-los na janela seguinte intocada. Duas perguntas: (1) a escolha é
+  estável entre janelas ou cada período elege um parâmetro diferente — o que já
+  seria veredicto negativo sozinho; (2) quanto do retorno in-sample sobrevive
+  out-of-sample (WFE).
+
+universe: default
+period:
+  start: 2018-01-01
+  end: 2024-01-01
+
+strategy:
+  class: MovingAverageCrossover
+  grid:
+    fast_window: [5, 9, 12, 20]
+    slow_window: [21, 50]
+
+stop:
+  class: AtrStop
+  grid:
+    period: 14
+    multiplier: [2.0, 2.5]
+
+execution:
+  risk_pct: 0.01
+  max_combos: 32
+
+select_by: sharpe
+
+# Treino de 3 anos, teste de 1: com histórico de 2018 a 2024 dá 3 janelas.
+# LIMITAÇÃO ASSUMIDA: 3 janelas é pouco, e a própria spec avisa que poucas
+# janelas produzem WFE ruidoso. O número aqui vale como ordem de grandeza e
+# como exercício do método, não como veredicto de precisão.
+walk_forward:
+  scheme: expanding
+  train_years: 3
+  test_years: 1

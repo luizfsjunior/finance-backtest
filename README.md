@@ -142,6 +142,50 @@ O `sweep_id` de cada linha carrega o nome do experimento
 (`mac_plateau-2026-08-17T13:22:01`), então a linha do CSV diz de qual arquivo
 ela saiu.
 
+### Laboratório — walk-forward e WFE (`walkforward.py`)
+
+Componente 2 do `SPEC_LAB.md`, o obstáculo que de fato separa robusto de
+sortudo: **os parâmetros escolhidos no passado funcionam no futuro que não foi
+usado para escolhê-los?** Esquema `expanding` — origem do treino fixa, treino
+cresce absorvendo o bloco de teste anterior, cada período é out-of-sample
+exatamente uma vez.
+
+**WFE (Walk-Forward Efficiency)** = retorno out-of-sample / retorno in-sample,
+anualizados. Acima de ~50-60% sugere robustez real; consistentemente baixa é
+overfitting. É a saída principal do laboratório.
+
+Decisões que valem explicação:
+
+- **A defesa anti-vazamento é estrutural, não disciplinar.** A fase de treino
+  roda um sweep cujo `SweepSpec` tem `end = train_end`: os dados do teste nem
+  chegam a ser lidos, não existe caminho de código em que a seleção veja o
+  futuro. `tests/test_walkforward.py` verifica por dois ângulos independentes —
+  as datas efetivamente pedidas em cada fase, e a invariância da escolha quando
+  só o futuro é perturbado.
+- **WFE agregada usa a razão das médias, não a média das razões.** Uma janela
+  com in-sample perto de zero dominaria a média de razões e viraria o veredicto
+  por artefato de divisão.
+- **WFE é `None` quando o in-sample é ≤ 0.** "Manteve 200% da performance" de um
+  treino que perdeu dinheiro não significa nada. Já um out-of-sample negativo é
+  informação legítima e vira WFE negativa.
+- **Janela de teste incompleta é descartada** — anualizar meio bloco como se
+  fosse um bloco inteiro inventa performance.
+- **Seleção e WFE usam métricas diferentes de propósito:** a combinação é
+  escolhida por `select_by` (Sharpe, tipicamente) e o WFE é sempre sobre retorno
+  anualizado. São perguntas distintas ("qual escolher" vs "quanto sobreviveu").
+
+**Limitação conhecida — warm-up dentro do teste.** O bloco de teste roda
+sozinho, começando em `test_start`, então uma estratégia com lookback longo
+(momentum 12-1 precisa de 252 barras) passa o início do bloco sem poder operar.
+Carregar histórico anterior só para aquecer exigiria o motor devolver equity de
+um sub-trecho — reescrever o núcleo por causa de uma feature. A escolha é
+conservadora de propósito: **subestima** a estratégia, nunca a superestima, e
+nada do teste vaza para a decisão. Use `test_years` grande o bastante.
+
+**O que não está coberto:** o "fitting implícito" (você olha o out-of-sample,
+ajusta a grade e roda de novo — contaminando o teste com a própria memória).
+Nenhum código detecta isso; `n_combos` cobre só a parte mecânica do obstáculo 4.
+
 ---
 
 ## Setup
@@ -215,6 +259,25 @@ python lab.py run experiments/mac_plateau.yaml             # executa
 os minutos. `--max-combos` sobrescreve o teto do arquivo. Template comentado:
 `experiments/mac_plateau.yaml`.
 
+### Walk-forward
+
+Basta o experimento declarar a seção `walk_forward` — aí `lab.py run` já executa
+walk-forward em vez de sweep simples, e grava em `walkforward_runs.csv`:
+
+```yaml
+walk_forward:
+  scheme: expanding
+  train_years: 3
+  test_years: 1
+```
+
+```powershell
+python walkforward.py experiments/mac_walkforward.yaml   # atalho equivalente
+```
+
+O relatório sai por janela (combinação escolhida, in-sample, out-of-sample, WFE)
+e fecha com a WFE agregada.
+
 ### Plot do log
 
 ```powershell
@@ -265,6 +328,7 @@ que separam robusto de sortudo:
 
 1. **Sweep de parâmetros** — platô vs pico. ✅ implementado (`sweep.py`).
 2. **Walk-forward + WFE** — a tese funciona em dados que ela não escolheu?
+   ✅ implementado (`walkforward.py`), esquema `expanding` só.
 3. **Robustez a perturbação** — leave-one-out de ativo, deslocamento de datas,
    custos dobrados.
 4. **Correção por número de tentativas** — a melhor de 200 combinações não vale
@@ -273,8 +337,8 @@ que separam robusto de sortudo:
 Config declarativo (YAML): ✅ implementado (`lab.py` + `experiments/*.yaml`).
 Web app só depois de o acervo justificar navegar.
 
-Estado: componentes 1 e 5 prontos; o próximo é o walk-forward (2), o obstáculo
-que de fato separa robusto de sortudo.
+Estado: componentes 1, 2 e 5 prontos. Faltam robustez a perturbação (3),
+visualizações (6) e a contagem de "espiadas" que o obstáculo 4 pede.
 
 ## Histórico de teses
 

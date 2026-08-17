@@ -46,6 +46,14 @@ from sweep import (
     run_sweep,
     valid_combos,
 )
+from walkforward import DEFAULT_LOG_PATH as WF_DEFAULT_LOG_PATH
+from walkforward import (
+    WalkForwardError,
+    WalkForwardResult,
+    WalkForwardSpec,
+    make_windows,
+    run_walk_forward,
+)
 
 # Registro fechado: o YAML escolhe por nome dentro deste dicionário e nada mais.
 # Resolver classe por `getattr` num módulo deixaria um arquivo de experimento
@@ -72,9 +80,11 @@ TOP_LEVEL_FIELDS = {
     "stop",
     "execution",
     "select_by",
+    "walk_forward",
 }
 
 PERIOD_FIELDS = {"start", "end"}
+WALK_FORWARD_FIELDS = {"scheme", "train_years", "test_years"}
 COMPONENT_FIELDS = {"class", "grid"}
 EXECUTION_FIELDS = {
     "initial_capital",
@@ -92,12 +102,19 @@ class ExperimentError(Exception):
 
 @dataclass(frozen=True)
 class Experiment:
-    """Um experimento declarado em arquivo, pronto para virar sweep."""
+    """Um experimento declarado em arquivo, pronto para virar sweep.
+
+    Com a seção `walk_forward` declarada, o experimento vira walk-forward: o
+    mesmo universo/grade, fatiado em janelas treino→teste. Sem ela, é um sweep
+    simples sobre o período inteiro (in-sample, e o relatório não finge o
+    contrário).
+    """
 
     name: str
     spec: SweepSpec
     select_by: str
     source: Path | None = None
+    walk_forward: WalkForwardSpec | None = None
 
 
 def load_experiment(path: Path | str) -> Experiment:
@@ -113,14 +130,6 @@ def load_experiment(path: Path | str) -> Experiment:
 
     if not isinstance(raw, Mapping):
         raise ExperimentError(f"{path}: arquivo vazio ou não é um mapeamento YAML")
-
-    if "walk_forward" in raw:
-        raise ExperimentError(
-            "'walk_forward' ainda não é suportado (Componente 2 do SPEC_LAB não "
-            "existe). Aceitar o campo e rodar um sweep simples devolveria um "
-            "resultado in-sample com aparência de out-of-sample — o pior desfecho "
-            "possível para esta bancada. Remova o campo ou implemente o Componente 2."
-        )
 
     _reject_unknown(raw, TOP_LEVEL_FIELDS, secao="topo do arquivo")
 
@@ -159,12 +168,47 @@ def load_experiment(path: Path | str) -> Experiment:
         min_median_turnover=execution.get("min_turnover", DEFAULT_MIN_MEDIAN_TURNOVER),
     )
 
+    select_by = str(raw.get("select_by", "sharpe"))
     return Experiment(
         name=name,
         spec=spec,
-        select_by=str(raw.get("select_by", "sharpe")),
+        select_by=select_by,
         source=path,
+        walk_forward=_parse_walk_forward(raw, spec, select_by),
     )
+
+
+def _parse_walk_forward(
+    raw: Mapping[str, Any], spec: SweepSpec, select_by: str
+) -> WalkForwardSpec | None:
+    if "walk_forward" not in raw:
+        return None
+
+    bloco = raw["walk_forward"]
+    if not isinstance(bloco, Mapping):
+        raise ExperimentError("'walk_forward' precisa ser um mapeamento")
+    _reject_unknown(bloco, WALK_FORWARD_FIELDS, secao="walk_forward")
+
+    for campo in ("train_years", "test_years"):
+        if campo not in bloco:
+            raise ExperimentError(f"'walk_forward' precisa de '{campo}'")
+        if not isinstance(bloco[campo], int) or bloco[campo] < 1:
+            raise ExperimentError(f"walk_forward.{campo} precisa ser inteiro >= 1")
+
+    wf = WalkForwardSpec(
+        sweep=spec,
+        train_years=bloco["train_years"],
+        test_years=bloco["test_years"],
+        scheme=str(bloco.get("scheme", "expanding")),
+        select_by=select_by,
+    )
+    # valida a geometria já no carregamento: descobrir que o histórico não
+    # comporta nenhuma janela depois de metade do sweep rodado é desperdício
+    try:
+        make_windows(spec.start, spec.end, wf.train_years, wf.test_years, wf.scheme)
+    except WalkForwardError as exc:
+        raise ExperimentError(f"walk_forward inválido: {exc}") from exc
+    return wf
 
 
 def _reject_unknown(mapping: Mapping[str, Any], allowed: set[str], secao: str) -> None:
@@ -277,22 +321,43 @@ def make_sweep_id(name: str, when: str | None = None) -> str:
     return f"{name}-{when or datetime.now().isoformat(timespec='seconds')}"
 
 
+# Sentinela para "escolha o CSV default do tipo de execução". Não dá para usar
+# None: ali None já significa "não grave nada".
+_AUTO = object()
+
+
 def run_experiment(
     experiment: Experiment,
     *,
-    log_path: Path | None = DEFAULT_LOG_PATH,
+    log_path: Path | None | Any = _AUTO,
     cache_dir: Path = Path("data_cache"),
     fetch_fn: FetchFn | None = None,
     verbose: bool = True,
     train_test: str = "full",
-) -> SweepResult:
-    """Roda o experimento carregado. É o sweep do Componente 1, sem novidade
-    de execução — o que este módulo agrega é a declaração reproduzível."""
+) -> SweepResult | WalkForwardResult:
+    """Roda o experimento carregado, sweep ou walk-forward conforme declarado.
+
+    Nenhuma novidade de execução mora aqui — o que este módulo agrega é a
+    declaração reproduzível. Cada tipo grava no seu CSV (`sweep_runs.csv` vs
+    `walkforward_runs.csv`): as linhas têm proveniência e significados
+    diferentes, e misturá-las faria a leitura do acervo depender de lembrar
+    qual coluna estava preenchida.
+    """
+    if experiment.walk_forward is not None:
+        return run_walk_forward(
+            experiment.walk_forward,
+            run_id=make_sweep_id(experiment.name),
+            log_path=WF_DEFAULT_LOG_PATH if log_path is _AUTO else log_path,
+            cache_dir=cache_dir,
+            fetch_fn=fetch_fn,
+            verbose=verbose,
+        )
+
     return run_sweep(
         experiment.spec,
         sweep_id=make_sweep_id(experiment.name),
         train_test=train_test,
-        log_path=log_path,
+        log_path=DEFAULT_LOG_PATH if log_path is _AUTO else log_path,
         cache_dir=cache_dir,
         fetch_fn=fetch_fn,
         verbose=verbose,
@@ -313,7 +378,24 @@ def _print_plan(experiment: Experiment) -> None:
     print(f"universo: {len(spec.tickers)} ticker(s)")
     print(f"setup:    {spec.strategy_class.__name__} + {spec.stop_class.__name__}")
     print(f"grade:    {len(combos)} combinação(ões) válida(s)")
-    print(f"total:    {len(combos) * len(spec.tickers)} backtests")
+
+    if experiment.walk_forward is None:
+        print(f"modo:     sweep simples (tudo in-sample)")
+        print(f"total:    {len(combos) * len(spec.tickers)} backtests")
+    else:
+        wf = experiment.walk_forward
+        janelas = make_windows(spec.start, spec.end, wf.train_years, wf.test_years, wf.scheme)
+        # por janela: a grade inteira no treino + a combinação escolhida no teste
+        por_janela = (len(combos) + 1) * len(spec.tickers)
+        print(f"modo:     walk-forward {wf.scheme}, {len(janelas)} janela(s)")
+        print(f"          treino {wf.train_years}a → teste {wf.test_years}a, seleção por {wf.select_by}")
+        print(f"total:    {por_janela * len(janelas)} backtests")
+        for janela in janelas:
+            print(
+                f"  w{janela.index}  treino {janela.train_start}→{janela.train_end}"
+                f"  | teste {janela.test_start}→{janela.test_end}"
+            )
+
     for combo in combos:
         print(f"  {combo.combo_id}  {combo.all_params}")
 
@@ -326,7 +408,13 @@ def _parse_args() -> argparse.Namespace:
 
     run_cmd = sub.add_parser("run", help="Roda um experimento")
     run_cmd.add_argument("experiment", type=Path, help="Caminho do .yaml do experimento")
-    run_cmd.add_argument("--log-path", type=Path, default=DEFAULT_LOG_PATH)
+    run_cmd.add_argument(
+        "--log-path",
+        type=Path,
+        default=None,
+        help="Default: sweep_runs.csv, ou walkforward_runs.csv se o experimento "
+        "declarar walk_forward",
+    )
     run_cmd.add_argument(
         "--dry-run",
         action="store_true",
@@ -357,18 +445,23 @@ def main() -> None:
             experiment, spec=replace(experiment.spec, max_combos=args.max_combos)
         )
 
+    log_path = args.log_path if args.log_path is not None else _AUTO
     try:
         _print_plan(experiment)
         if args.dry_run:
             print("\n(dry-run: nada executado)")
             return
-        result = run_experiment(experiment, log_path=args.log_path)
+        result = run_experiment(experiment, log_path=log_path)
     except Exception as exc:
         raise SystemExit(f"Experimento abortado: {exc}")
 
-    print_distribution(
-        aggregate_by_combo(result.rows, experiment.select_by), experiment.select_by
-    )
+    if experiment.walk_forward is None:
+        # o relatório do walk-forward já sai durante a execução (uma janela por
+        # vez); só o sweep simples precisa do fechamento aqui
+        print_distribution(
+            aggregate_by_combo(result.rows, experiment.select_by), experiment.select_by
+        )
+
     if result.failures:
         print(f"\n{len(result.failures)} falha(s):")
         for combo_id, ticker, msg in result.failures[:20]:

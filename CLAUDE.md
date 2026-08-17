@@ -58,8 +58,17 @@ aquela grade. Registro FECHADO de classes (`STRATEGIES`/`STOPS`), nunca
 `getattr`. Campo desconhecido, classe inexistente ou hipótese vazia = erro
 explícito, nunca default silencioso. `walk_forward` no YAML levanta erro
 enquanto o Componente 2 não existir (rodar sweep simples e devolver algo com
-cara de out-of-sample é o pior desfecho possível). Componentes 2, 3, 4 e 6 da
-spec ainda não existem.
+cara de out-of-sample é o pior desfecho possível). Componentes 3, 4 e 6 da spec
+ainda não existem.
+
+**Walk-forward** (`walkforward.py`): Componente 2, esquema `expanding` só
+(`rolling` levanta erro em vez de rodar expanding com nome errado). Defesa
+anti-vazamento é ESTRUTURAL: o sweep de treino roda com `end = train_end`, então
+os dados de teste nem são lidos. Qualquer código novo que faça a seleção enxergar
+o bloco de teste é bug crítico — `tests/test_walkforward.py` cobre isso por dois
+ângulos. WFE = razão das MÉDIAS (não média das razões) e é `None` com in-sample
+≤ 0. Limitação assumida: o bloco de teste roda sozinho, então o warm-up da
+estratégia consome o início dele — subestima a tese, nunca superestima.
 
 ## Convenções não óbvias
 

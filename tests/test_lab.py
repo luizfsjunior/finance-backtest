@@ -48,6 +48,14 @@ strategy:
 """
 
 
+# Mesmo experimento, período longo o bastante para caber janelas de
+# walk-forward (o mínimo acima tem só um ano de histórico).
+YAML_LONGO = YAML_MINIMO.replace(
+    "period: {start: 2024-01-02, end: 2024-12-30}",
+    "period: {start: 2016-01-01, end: 2021-01-01}",
+)
+
+
 def _write(tmp_path: Path, conteudo: str, nome: str = "exp.yaml") -> Path:
     caminho = tmp_path / nome
     caminho.write_text(conteudo, encoding="utf-8")
@@ -179,12 +187,25 @@ class TestErroNuncaViraDefaultSilencioso:
         with pytest.raises(ExperimentError, match="start"):
             load_experiment(_write(tmp_path, yaml))
 
-    def test_walk_forward_declarado_ainda_nao_e_suportado(self, tmp_path: Path):
-        # aceitar o campo e rodar um sweep simples entregaria um resultado
-        # in-sample com cara de out-of-sample. Erro explícito é o único
-        # desfecho honesto enquanto o Componente 2 não existir.
-        yaml = YAML_MINIMO + "\nwalk_forward: {scheme: expanding, train_years: 3}\n"
-        with pytest.raises(ExperimentError, match="Componente 2"):
+    def test_walk_forward_sem_test_years(self, tmp_path: Path):
+        yaml = YAML_LONGO + "\nwalk_forward: {scheme: expanding, train_years: 3}\n"
+        with pytest.raises(ExperimentError, match="test_years"):
+            load_experiment(_write(tmp_path, yaml))
+
+    def test_walk_forward_com_campo_desconhecido(self, tmp_path: Path):
+        yaml = YAML_LONGO + "\nwalk_forward: {train_years: 3, test_years: 1, janelas: 4}\n"
+        with pytest.raises(ExperimentError, match="janelas"):
+            load_experiment(_write(tmp_path, yaml))
+
+    def test_walk_forward_com_scheme_nao_implementado(self, tmp_path: Path):
+        yaml = YAML_LONGO + "\nwalk_forward: {scheme: rolling, train_years: 3, test_years: 1}\n"
+        with pytest.raises(ExperimentError, match="rolling"):
+            load_experiment(_write(tmp_path, yaml))
+
+    def test_walk_forward_que_nao_cabe_no_historico_falha_no_carregamento(self, tmp_path: Path):
+        # descobrir isso depois de metade do sweep rodado é desperdício puro
+        yaml = YAML_MINIMO + "\nwalk_forward: {train_years: 3, test_years: 1}\n"
+        with pytest.raises(ExperimentError, match="nenhuma janela"):
             load_experiment(_write(tmp_path, yaml))
 
     def test_arquivo_vazio(self, tmp_path: Path):
@@ -224,6 +245,29 @@ class TestRodarExperimento:
         assert all(row["hypothesis"] == "o 9/21 era pico ou platô?" for row in result.rows)
         assert log.exists()
 
+    def test_walk_forward_declarado_vira_walk_forward_de_verdade(self, tmp_path: Path):
+        yaml = YAML_LONGO + "\nwalk_forward: {train_years: 2, test_years: 1}\n"
+        exp = load_experiment(_write(tmp_path, yaml))
+
+        assert exp.walk_forward is not None
+        assert exp.walk_forward.train_years == 2
+        assert exp.walk_forward.select_by == exp.select_by  # herdado do topo
+
+        result = run_experiment(
+            exp,
+            log_path=tmp_path / "wf.csv",
+            cache_dir=tmp_path / "cache",
+            fetch_fn=_oscillating,
+            verbose=False,
+        )
+        # é um WalkForwardResult, não um SweepResult: tem janelas e WFE
+        assert len(result.windows) == 3
+        assert result.run_id.startswith("mac_plateau-")
+
+    def test_sem_walk_forward_o_experimento_continua_sweep_simples(self, tmp_path: Path):
+        exp = load_experiment(_write(tmp_path, YAML_MINIMO))
+        assert exp.walk_forward is None
+
     def test_experimento_de_exemplo_do_repo_carrega(self):
         # o arquivo de exemplo é documentação executável: se ele quebra, a
         # primeira coisa que alguém tenta rodar no laboratório não funciona
@@ -231,3 +275,9 @@ class TestRodarExperimento:
         exp = load_experiment(raiz / "experiments" / "mac_plateau.yaml")
         assert exp.spec.strategy_class is MovingAverageCrossover
         assert exp.spec.hypothesis
+
+    def test_experimento_de_walk_forward_do_repo_carrega(self):
+        raiz = Path(__file__).resolve().parent.parent
+        exp = load_experiment(raiz / "experiments" / "mac_walkforward.yaml")
+        assert exp.walk_forward is not None
+        assert exp.walk_forward.scheme == "expanding"
