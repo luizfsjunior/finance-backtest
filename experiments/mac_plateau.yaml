@@ -1,0 +1,48 @@
+# Experimento de referência do laboratório — serve de template.
+#
+# O que este arquivo é: o documento de UM experimento. Ele se versiona junto
+# do resultado, e é o comentário (como este) que explica por que a grade é
+# esta e não outra. Rodar:
+#
+#     python lab.py run experiments/mac_plateau.yaml --dry-run
+#     python lab.py run experiments/mac_plateau.yaml
+
+experiment: mac_plateau
+
+# Por que este experimento existe. Obrigatório — sem isso o CSV não se explica
+# sozinho daqui a três meses.
+hypothesis: >
+  O 9/21 usado em todos os batches do MAC foi escolhido por convenção, não por
+  teste. Se o resultado dele for um pico isolado numa vizinhança de fracasso,
+  o histórico inteiro do MAC neste projeto está contaminado por sorte de
+  tuning. Se for um platô, a refutação da família fica mais forte: não é
+  questão de calibrar melhor.
+
+universe: default # os 10 tickers líquidos padrão; ou uma lista explícita
+period:
+  start: 2018-01-01
+  end: 2024-01-01
+
+strategy:
+  class: MovingAverageCrossover
+  grid:
+    # a vizinhança em torno do 9/21, para os dois lados
+    fast_window: [5, 9, 12, 20]
+    slow_window: [21, 50]
+
+stop:
+  class: AtrStop
+  grid:
+    period: 14 # escalar vale como lista de um
+    # 2.0-2.5 é o platô já identificado nos batches anteriores; entra aqui
+    # para o sweep confirmar que ele sobrevive à mudança das janelas
+    multiplier: [2.0, 2.5]
+
+execution:
+  risk_pct: 0.01
+  slippage_bps: 5
+  max_combos: 32
+
+# métrica do ranking impresso no fim. Sharpe e não retorno: o que está em
+# questão é qualidade do retorno por unidade de risco, não tamanho do número.
+select_by: sharpe

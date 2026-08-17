@@ -50,7 +50,16 @@ combinações inválidas ANTES de rodar (tentando construir estratégia/stop —
 `ValueError` filtra, `TypeError` sobe), tem teto de combinações e grava
 proveniência (`sweep_id`, `combo_id`, `n_combos`, `train_test`) em
 `sweep_runs.csv` — separado do `runs.csv` para não afogar o acervo curado dos
-batches. Componentes 2-6 da spec ainda não existem.
+batches.
+
+**Experimento como arquivo** (`lab.py` + `experiments/*.yaml`): Componente 5 da
+spec. YAML (não JSON) por causa dos comentários — o arquivo registra por que
+aquela grade. Registro FECHADO de classes (`STRATEGIES`/`STOPS`), nunca
+`getattr`. Campo desconhecido, classe inexistente ou hipótese vazia = erro
+explícito, nunca default silencioso. `walk_forward` no YAML levanta erro
+enquanto o Componente 2 não existir (rodar sweep simples e devolver algo com
+cara de out-of-sample é o pior desfecho possível). Componentes 2, 3, 4 e 6 da
+spec ainda não existem.
 
 ## Convenções não óbvias
 

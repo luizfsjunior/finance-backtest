@@ -111,6 +111,37 @@ reusar este sweep marcando cada janela.
 `CONCLUSOES.md` — uma linha por decisão de pesquisa. Um único sweep despeja
 centenas de linhas e afogaria esse histórico.
 
+### Laboratório — experimento como arquivo (`lab.py`, `experiments/*.yaml`)
+
+Componente 5 do `SPEC_LAB.md`. Um experimento é universo + período +
+estratégia + grade + métrica de seleção — ou seja, um documento. Documento se
+versiona: commitado junto do resultado, seis meses depois você recria a
+varredura exata. É por isso que a entrada é arquivo e não formulário web.
+
+YAML e não JSON por causa dos **comentários**: o arquivo é onde se registra por
+que aquela grade e não outra, e essa justificativa é metade do valor dele. Ver
+`experiments/mac_plateau.yaml`, que serve de template.
+
+Postura de erro: **nada de default silencioso.** Campo com nome errado, classe
+inexistente, seção obrigatória faltando e hipótese vazia levantam erro nomeando
+o problema. Num laboratório cujo produto é o veredicto, um typo que vira default
+é pior que um crash — o experimento roda, o resultado sai, e responde a uma
+pergunta diferente da que você fez.
+
+Duas decisões que valem explicação:
+
+- **Registro fechado de classes** (`STRATEGIES`/`STOPS` em `lab.py`): o YAML
+  escolhe por nome dentro de um dicionário e nada mais. Resolver por `getattr`
+  num módulo deixaria um arquivo de experimento instanciar qualquer coisa
+  importável, e um nome errado passaria a depender do acaso.
+- **`walk_forward` declarado é erro, não campo ignorado**, enquanto o Componente
+  2 não existir. Aceitar o campo e rodar um sweep simples devolveria resultado
+  in-sample com aparência de out-of-sample — o pior desfecho possível aqui.
+
+O `sweep_id` de cada linha carrega o nome do experimento
+(`mac_plateau-2026-08-17T13:22:01`), então a linha do CSV diz de qual arquivo
+ela saiu.
+
 ---
 
 ## Setup
@@ -124,7 +155,7 @@ pip install -r requirements.txt
 ```
 
 Dependências: `pandas`, `numpy`, `pyarrow` (cache parquet), `yfinance`,
-`matplotlib`, `pytest`.
+`matplotlib`, `pyyaml` (config de experimento), `pytest`.
 
 ## Uso
 
@@ -173,6 +204,17 @@ ranking mais a distribuição de todas as combinações. `--max-combos` sobe o t
 (default 256), `--log-path` muda o destino, `--select-by` escolhe a métrica do
 ranking.
 
+### Experimento declarado em arquivo
+
+```powershell
+python lab.py run experiments/mac_plateau.yaml --dry-run   # mostra o plano
+python lab.py run experiments/mac_plateau.yaml             # executa
+```
+
+`--dry-run` lista as combinações válidas e o total de backtests antes de gastar
+os minutos. `--max-combos` sobrescreve o teto do arquivo. Template comentado:
+`experiments/mac_plateau.yaml`.
+
 ### Plot do log
 
 ```powershell
@@ -187,7 +229,7 @@ pytest
 
 Cobrem cada módulo isoladamente (`tests/test_backtest.py`, `test_strategy.py`,
 `test_stops.py`, `test_costs.py`, `test_metrics.py`, `test_data.py`,
-`test_main.py`, `test_sweep.py`).
+`test_main.py`, `test_sweep.py`, `test_lab.py`).
 
 ---
 
@@ -228,7 +270,11 @@ que separam robusto de sortudo:
 4. **Correção por número de tentativas** — a melhor de 200 combinações não vale
    o que valeria um resultado único.
 
-Config declarativo (YAML). Web app só depois de o acervo justificar navegar.
+Config declarativo (YAML): ✅ implementado (`lab.py` + `experiments/*.yaml`).
+Web app só depois de o acervo justificar navegar.
+
+Estado: componentes 1 e 5 prontos; o próximo é o walk-forward (2), o obstáculo
+que de fato separa robusto de sortudo.
 
 ## Histórico de teses
 

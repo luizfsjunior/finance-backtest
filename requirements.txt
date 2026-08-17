@@ -3,4 +3,5 @@ numpy
 pyarrow
 yfinance
 matplotlib
+pyyaml
 pytest
