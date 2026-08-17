@@ -82,6 +82,35 @@ Contrapartida multi-asset. Diferenças estruturais:
 - **`plot_runs.py`** — lê o CSV e desenha comparações. Regra: cada gráfico
   responde a UMA pergunta.
 
+### Laboratório — sweep de parâmetros (`sweep.py`)
+
+Primeira peça do `SPEC_LAB.md`, camada POR CIMA do que já existe: varre uma
+grade declarada de parâmetros, uma execução do pipeline normal por combinação
+por ticker. Responde "o bom resultado é um platô ou um pico?".
+
+- `expand_grid` faz o produto cartesiano em ordem determinística.
+- `valid_combos` descarta combinações inválidas **antes** de rodar. A regra de
+  validade não é reimplementada: ele tenta construir a estratégia/stop e
+  descarta o que levantar `ValueError` (`MovingAverageCrossover` já rejeita
+  `fast >= slow`). Um `TypeError` (nome de parâmetro errado na grade) sobe —
+  senão um typo viraria "todas inválidas" em silêncio.
+- Teto de combinações (`max_combos`, default 256): sweep grande demais aborta
+  antes de escrever qualquer linha.
+- `aggregate_by_combo` resume cada combinação na média da métrica no universo;
+  `print_distribution` imprime o topo do ranking **e** a distribuição inteira
+  (suporte do obstáculo 4).
+
+Colunas de proveniência gravadas em toda linha: `sweep_id`, `combo_id`,
+`n_combos`, `train_test`. `n_combos` é o que sustenta o obstáculo 4 — o mesmo
+Sharpe vale menos como melhor de 200 tentativas do que como resultado único.
+`train_test` é preenchido por quem chama, para o walk-forward (Componente 2)
+reusar este sweep marcando cada janela.
+
+**Desvio consciente da spec:** o sweep grava em `sweep_runs.csv`, não em
+`runs.csv`. O `runs.csv` é o acervo curado dos batches que sustentam o
+`CONCLUSOES.md` — uma linha por decisão de pesquisa. Um único sweep despeja
+centenas de linhas e afogaria esse histórico.
+
 ---
 
 ## Setup
@@ -131,6 +160,19 @@ usados e todas as métricas do relatório.
 python portfolio_batch.py --top-k 3 --rebalance monthly --hypothesis "..."
 ```
 
+### Sweep de parâmetros
+
+```powershell
+python sweep.py --strategy mac --fast-window 5,9,20 --slow-window 21,50 `
+  --stop atr --atr-multiplier 2.0,2.5 --select-by sharpe `
+  --hypothesis "o 9/21 do MAC era pico ou platô?"
+```
+
+Listas são separadas por vírgula. Grava em `sweep_runs.csv` e imprime o topo do
+ranking mais a distribuição de todas as combinações. `--max-combos` sobe o teto
+(default 256), `--log-path` muda o destino, `--select-by` escolhe a métrica do
+ranking.
+
 ### Plot do log
 
 ```powershell
@@ -145,7 +187,7 @@ pytest
 
 Cobrem cada módulo isoladamente (`tests/test_backtest.py`, `test_strategy.py`,
 `test_stops.py`, `test_costs.py`, `test_metrics.py`, `test_data.py`,
-`test_main.py`).
+`test_main.py`, `test_sweep.py`).
 
 ---
 
@@ -179,7 +221,7 @@ Cobrem cada módulo isoladamente (`tests/test_backtest.py`, `test_strategy.py`,
 Ver `SPEC_LAB.md`. Camada aditiva por cima do motor, adicionando os 4 obstáculos
 que separam robusto de sortudo:
 
-1. **Sweep de parâmetros** — platô vs pico.
+1. **Sweep de parâmetros** — platô vs pico. ✅ implementado (`sweep.py`).
 2. **Walk-forward + WFE** — a tese funciona em dados que ela não escolheu?
 3. **Robustez a perturbação** — leave-one-out de ativo, deslocamento de datas,
    custos dobrados.

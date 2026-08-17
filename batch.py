@@ -60,22 +60,26 @@ def flatten(obj: Any, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def append_row(row: dict[str, Any]) -> None:
+def append_row(row: dict[str, Any], path: Path = LOG_PATH) -> None:
     """Grava uma linha, criando o cabeçalho na primeira vez.
 
     Se o schema mudar entre execuções, escreve um novo cabeçalho em vez de
     silenciosamente desalinhar as colunas.
+
+    `path` é parâmetro (e não a constante direta) porque o sweep do laboratório
+    escreve no seu próprio CSV — ver `sweep.py`.
     """
     existing_header: list[str] | None = None
-    if LOG_PATH.exists():
-        with LOG_PATH.open(newline="", encoding="utf-8") as f:
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as f:
             first = f.readline().strip()
             existing_header = first.split(",") if first else None
 
     header = list(row.keys())
     write_header = existing_header != header
 
-    with LOG_PATH.open("a", newline="", encoding="utf-8") as f:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=header)
         if write_header:
             writer.writeheader()

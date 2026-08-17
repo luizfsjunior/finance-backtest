@@ -44,6 +44,14 @@ exige uma `--hypothesis` — o CSV sem isso é inútil em 3 meses.
 **Plot** (`plot_runs.py`): lê o CSV e desenha comparações. Cada gráfico responde
 a UMA pergunta.
 
+**Laboratório** (`sweep.py`): Componente 1 do `SPEC_LAB.md`, camada por cima do
+pipeline. Varre grade declarada (produto cartesiano determinístico), filtra
+combinações inválidas ANTES de rodar (tentando construir estratégia/stop —
+`ValueError` filtra, `TypeError` sobe), tem teto de combinações e grava
+proveniência (`sweep_id`, `combo_id`, `n_combos`, `train_test`) em
+`sweep_runs.csv` — separado do `runs.csv` para não afogar o acervo curado dos
+batches. Componentes 2-6 da spec ainda não existem.
+
 ## Convenções não óbvias
 
 - **Nunca olhar o futuro.** Sinal em D → execução na abertura de D+1. Qualquer
